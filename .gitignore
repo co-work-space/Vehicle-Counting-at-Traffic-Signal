@@ -1,0 +1,13 @@
+# Python virtual environment
+vehicle_env/
+__pycache__/
+*.pyc
+
+# OS generated files
+.DS_Store
+
+# Ignore large video files and outputs
+data/videos/*
+data/outputs/*
+*.mp4
+*.avi
