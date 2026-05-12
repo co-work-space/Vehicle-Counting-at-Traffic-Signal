@@ -6,8 +6,24 @@ __pycache__/
 # OS generated files
 .DS_Store
 
+# Editor-specific files
+.vscode/
+.idea/
+
 # Ignore large video files and outputs
 data/videos/*
 data/outputs/*
 *.mp4
 *.avi
+
+# AI Model weights (YOLO models can be 50MB to 200MB+)
+*.pt
+*.pth
+
+# Local Database files (SQLite)
+*.db
+*.sqlite3
+
+# Application Logs
+data/logs/*
+*.log
