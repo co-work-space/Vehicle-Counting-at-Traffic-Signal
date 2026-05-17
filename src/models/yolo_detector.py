@@ -24,8 +24,8 @@ class YOLODetector:
                 cls = int(box.cls[0])
 
                 # Filter only vehicles
-                # 2=car, 3=motorcycle, 5=bus, 7=truck
-                if conf > CONF_THRESHOLD and cls in [2, 3, 5, 7]:
+                # 2=car, 3=motorcycle, 5=bus, 7=truck, 8=Auto-rickshaw
+                if conf > CONF_THRESHOLD and cls in [2, 3, 5, 7, 8]:
                     detections.append({
                         "bbox": (x1, y1, x2, y2),
                         "confidence": conf,
