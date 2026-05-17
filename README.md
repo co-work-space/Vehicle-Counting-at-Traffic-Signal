@@ -2,7 +2,7 @@
 
 A production-grade, full-stack computer vision application that processes video traffic feeds to detect, track, and analyze multi-class vehicular traffic patterns. This system integrates real-time object tracking algorithms with deep-learning vision models and presents actionable analytical telemetry inside a responsive web dashboard.
 
-🚀 **Live Demo:** *(Add your deployment link here)*
+🚀 **Live Demo:** *https://vehicle-counting-at-traffic-signal-29zg3unbye9unfnrso5gsq.streamlit.app/*
 
 ---
 
