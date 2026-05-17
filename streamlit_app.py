@@ -44,6 +44,8 @@ if "traffic_log_db" not in st.session_state:
     st.session_state.traffic_log_db = []
 if "dashboard_results" not in st.session_state:
     st.session_state.dashboard_results = None  
+if "show_celebration" not in st.session_state:
+    st.session_state.show_celebration = False
 
 @st.cache_resource
 def load_ai_modules():
@@ -52,7 +54,7 @@ def load_ai_modules():
 detector, tracker, analytics = load_ai_modules()
 CLASS_MAPPING = {2: 'Car', 3: 'Motorcycle', 5: 'Bus', 7: 'Truck', 8: 'Rickshaw'}
 
-# --- 🛠️ FUNCTION DEFINITION (Fixes the NameError) ---
+# --- FUNCTION DEFINITION FOR STATIC DISPLAY RENDER ---
 def render_metrics_and_charts(results_dict):
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     kpi1.metric("Total Vehicles Today", f"{results_dict['total_count']:,}")
@@ -75,7 +77,7 @@ def render_metrics_and_charts(results_dict):
     with gc:
         st.plotly_chart(results_dict['gauge_chart'], use_container_width=True)
 
-# --- REAL-TIME UI LOOP HELPER (SPOT 1 FIX) ---
+# --- REAL-TIME UI LOOP HELPER (450px GAUGE HEIGHT) ---
 def update_dashboard_ui(total_count, calculated_density, cumulative_history, counts_by_type):
     estimated_speed = max(12, int(52 - (calculated_density * 35) + np.random.normal(0, 1)))
     metric_total.metric("Total Vehicles Today", f"{total_count:,}")
@@ -147,6 +149,11 @@ if menu == "Main Dashboard":
     st.title("Live Traffic Command Center")
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # 🎈 FIXED: Displays the balloons right at the start of the post-inference page load
+    if st.session_state.show_celebration:
+        st.balloons()
+        st.session_state.show_celebration = False
+    
     if st.session_state.dashboard_results is not None:
         st.info("🔄 Displaying retained data from your previous pipeline session.")
         
@@ -167,6 +174,13 @@ if menu == "Main Dashboard":
             st.rerun()
 
     else:
+        # 💡 RESTORED UI NOTICE: The performance operating guide
+        st.info("""
+            💡 **Pipeline Performance Modes:**
+            * **🚀 Fast Run (Recommended):** Uncheck **"Enable Live Video View"** in the left sidebar and select **4x (Hyper-Drive)** speed. This processes your traffic video instantly in the background without browser network lag.
+            * **📺 Live View Mode:** Keep **"Enable Live Video View"** checked to watch the tracking bounding boxes update frame-by-frame. *Note: Browser rendering limitations make this run slower.*
+        """)
+        
         uploaded_file = st.file_uploader("Choose a traffic video file (MP4, AVI)", type=["mp4", "avi"])
         
         if uploaded_file is not None:
@@ -207,6 +221,9 @@ if menu == "Main Dashboard":
             counts_by_type = {'Car': 0, 'Truck': 0, 'Bus': 0, 'Motorcycle': 0, 'Rickshaw': 0}
             unique_counted_ids = set()
             
+            # 📦 FIXED: Active frame cache registry to prevent target box rendering flickers
+            active_render_boxes = {}
+            
             frame_count = 0
             while video_capture.isOpened():
                 if frame_step > 1:
@@ -230,30 +247,33 @@ if menu == "Main Dashboard":
                         tracker_inputs.append((x1, y1, x2, y2, class_name))
                     
                     tracked_objects = tracker.update(tracker_inputs)
+                    current_tracked_ids = set(tracked_objects.keys())
                     
                     for obj_id, obj_data in tracked_objects.items():
                         cx, cy = obj_data['centroid']
                         v_type = obj_data['detection']['class_name']
                         
                         matching_box = None
+                        min_dist = float('inf')
+                        
                         for (bx1, by1, bx2, by2, b_class) in tracker_inputs:
-                            if int((bx1 + bx2) / 2.0) == cx and int((by1 + by2) / 2.0) == cy:
+                            bcx = int((bx1 + bx2) / 2.0)
+                            bcy = int((by1 + by2) / 2.0)
+                            calc_dist = (bcx - cx)**2 + (bcy - cy)**2
+                            if calc_dist < min_dist and calc_dist < 3600: 
+                                min_dist = calc_dist
                                 matching_box = (bx1, by1, bx2, by2)
-                                break
                         
                         if matching_box:
-                            bx1, by1, bx2, by2 = matching_box
-                            box_color = (0, 255, 0) 
-                            cv2.rectangle(frame, (bx1, by1), (bx2, by2), box_color, 2)
-                            cv2.putText(frame, f"ID {obj_id}: {v_type}", (bx1, max(15, by1 - 8)),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
+                            # Cache found dimensions securely
+                            active_render_boxes[obj_id] = (*matching_box, v_type)
                             
                             if obj_id not in unique_counted_ids:
                                 unique_counted_ids.add(obj_id)
                                 counts_by_type[v_type] += 1
                                 
-                                crop_y1, crop_y2 = max(0, by1), min(h, by2)
-                                crop_x1, crop_x2 = max(0, bx1), min(w, bx2)
+                                crop_y1, crop_y2 = max(0, matching_box[1]), min(h, matching_box[3])
+                                crop_x1, crop_x2 = max(0, matching_box[0]), min(w, matching_box[2])
                                 vehicle_crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
                                 
                                 crop_path = f"data/crops/vehicle_{obj_id}.jpg"
@@ -282,7 +302,17 @@ if menu == "Main Dashboard":
                                     'Crop_Path': crop_path 
                                 })
 
-                # Counting line positioned safely lower down the window frame (75%)
+                    # Prune old cache targets no longer monitored by tracking arrays
+                    active_render_boxes = {uid: data for uid, data in active_render_boxes.items() if uid in current_tracked_ids}
+
+                # 🎨 FIXED: Draw cached tracking boundaries smoothly on EVERY SINGLE FRAME
+                for obj_id, (bx1, by1, bx2, by2, v_type) in active_render_boxes.items():
+                    box_color = (0, 255, 0) 
+                    cv2.rectangle(frame, (bx1, by1), (bx2, by2), box_color, 2)
+                    cv2.putText(frame, f"ID {obj_id}: {v_type}", (bx1, max(15, by1 - 8)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
+
+                # Counting line lower boundary intersection (75% frame depth)
                 line_y = int(h * 0.75)
                 cv2.line(frame, (0, line_y), (w, line_y), (0, 0, 255), 2)
                 cv2.putText(frame, "COUNTING LINE", (10, line_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
@@ -317,7 +347,7 @@ if menu == "Main Dashboard":
             fig_bar = px.bar(x=list(counts_by_type.keys()), y=list(counts_by_type.values()), color=list(counts_by_type.keys()), color_discrete_map=COLOR_MAP)
             fig_bar.update_layout(plot_bgcolor="rgba(0,0,0,0)")
             
-            # --- FINAL CONTAINER RE-SCALE (SPOT 2 FIX) ---
+            # --- FINAL CONTAINER RE-SCALE (450px) ---
             fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=min(100, int(final_density * 100)), gauge={'steps': [{'range': [0, 45], 'color': "#00C853"}, {'range': [45, 78], 'color': "#FFC107"}, {'range': [78, 100], 'color': "#FF4B4B"}], 'bar': {'color': "#00ACC1"}}))
             fig_gauge.update_layout(margin=dict(t=40, b=10, l=40, r=40), height=450)
             
@@ -332,7 +362,8 @@ if menu == "Main Dashboard":
                 'video_path': out_temp_path
             }
             
-            st.balloons()
+            # Set state tracker flag before calling rerun to trigger balloons safely
+            st.session_state.show_celebration = True
             st.rerun()  
 
 elif menu == "Search Logs":
